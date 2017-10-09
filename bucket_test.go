@@ -3,9 +3,14 @@ package gocb
 import (
 	"flag"
 	"fmt"
-	"gopkg.in/couchbaselabs/gojcbmock.v1"
+	"log"
 	"os"
+	"regexp"
+	"runtime"
 	"testing"
+	"time"
+
+	"gopkg.in/couchbaselabs/gojcbmock.v1"
 )
 
 var globalBucket *Bucket
@@ -42,4 +47,70 @@ func TestMain(m *testing.M) {
 	}
 
 	os.Exit(m.Run())
+}
+
+// Repro attempt for https://issues.couchbase.com/browse/GOCBC-236
+func TestReproduceGOCBC236(t *testing.T) {
+
+	numIterations := 100
+	for i := 0; i < numIterations; i++ {
+
+		cluster, err := Connect("http://localhost:8091")
+		if err != nil {
+			t.Fatalf("Failed to connect to couchbase: %v", err)
+		}
+
+		goCBBucket, err := cluster.OpenBucket("test_data_bucket", "password")
+		if err != nil {
+			t.Fatalf("Failed to open bucket: %v", err)
+		}
+
+		// Set view timeout, in case this is relevant (probably not)
+		goCBBucket.SetViewTimeout(time.Second * 100)
+
+		doc := map[string]interface{}{}
+		doc["foo"] = "bar"
+		key := fmt.Sprintf("TestReproduceGOCBC236-%d", i)
+		goCBBucket.Upsert(key, doc, 1)
+
+		if err := goCBBucket.Close(); err != nil {
+			t.Fatalf("Failed to close bucket: %v", err)
+		}
+
+	}
+
+	passed := false
+	maxRetries := 30 // 30 seconds
+	sleepDurationPerRetry := time.Second
+	buf := make([]byte, 1<<20)
+
+	for i := 0; i < maxRetries; i++ {
+
+		runtime.Stack(buf, true)
+
+		// Make sure gocb is not in any of the stacks
+		r := regexp.MustCompile("gocb")
+		if !r.Match(buf) {
+
+			log.Printf("Noo gocb in goroutine stacks.  Setting passed = true")
+
+			passed = true
+			break
+		}
+
+		log.Printf("Found gocb in goroutine stacks, going to pause and retry")
+
+		// Sleep for a while and retry
+		time.Sleep(sleepDurationPerRetry)
+
+	}
+
+	if !passed {
+
+		log.Printf("--------------------------- Dump Stacks ----------------------------------")
+		log.Printf("%s", buf)
+
+		t.Fatalf("Found gocb in the goroutine stack dump.  Expected: there shouldn't be any gocb related goroutines running.")
+	}
+
 }
