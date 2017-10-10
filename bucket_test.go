@@ -1,14 +1,15 @@
 package gocb
 
 import (
-	"flag"
 	"fmt"
 	"log"
-	"os"
 	"regexp"
 	"runtime"
 	"testing"
 	"time"
+
+	"flag"
+	"os"
 
 	"gopkg.in/couchbaselabs/gojcbmock.v1"
 )
@@ -52,7 +53,9 @@ func TestMain(m *testing.M) {
 // Repro attempt for https://issues.couchbase.com/browse/GOCBC-236
 func TestReproduceGOCBC236(t *testing.T) {
 
-	numIterations := 100
+	SetLogger(VerboseStdioLogger())
+
+	numIterations := 1
 	for i := 0; i < numIterations; i++ {
 
 		cluster, err := Connect("http://localhost:8091")
@@ -82,9 +85,11 @@ func TestReproduceGOCBC236(t *testing.T) {
 	passed := false
 	maxRetries := 30 // 30 seconds
 	sleepDurationPerRetry := time.Second
-	buf := make([]byte, 1<<20)
+	var buf []byte
 
 	for i := 0; i < maxRetries; i++ {
+
+		buf = make([]byte, 1<<20)
 
 		runtime.Stack(buf, true)
 
