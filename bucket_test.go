@@ -8,47 +8,48 @@ import (
 	"testing"
 	"time"
 
-	"flag"
-	"os"
-
 	"gopkg.in/couchbaselabs/gojcbmock.v1"
+
+	"strings"
 )
 
 var globalBucket *Bucket
 var globalMock *gojcbmock.Mock
 
-func TestMain(m *testing.M) {
-	flag.Parse()
-	mpath, err := gojcbmock.GetMockPath()
-	if err != nil {
-		panic(err.Error())
-	}
-
-	globalMock, err = gojcbmock.NewMock(mpath, 4, 1, 64, []gojcbmock.BucketSpec{
-		{Name: "default", Type: gojcbmock.BCouchbase},
-		{Name: "memd", Type: gojcbmock.BMemcached},
-	}...)
-
-	if err != nil {
-		panic(err.Error())
-	}
-
-	connStr := fmt.Sprintf("http://127.0.0.1:%d", globalMock.EntryPort)
-
-	cluster, err := Connect(connStr)
-
-	if err != nil {
-		panic(err.Error())
-	}
-
-	globalBucket, err = cluster.OpenBucket("default", "")
-
-	if err != nil {
-		panic(err.Error())
-	}
-
-	os.Exit(m.Run())
-}
+//func TestMain(m *testing.M) {
+//	flag.Parse()
+//	mpath, err := gojcbmock.GetMockPath()
+//	if err != nil {
+//		panic(err.Error())
+//	}
+//
+//	globalMock, err = gojcbmock.NewMock(mpath, 4, 1, 64, []gojcbmock.BucketSpec{
+//		{Name: "default", Type: gojcbmock.BCouchbase},
+//		{Name: "memd", Type: gojcbmock.BMemcached},
+//	}...)
+//
+//	if err != nil {
+//		panic(err.Error())
+//	}
+//
+//	connStr := fmt.Sprintf("http://127.0.0.1:%d", globalMock.EntryPort)
+//
+//	cluster, err := Connect(connStr)
+//
+//	if err != nil {
+//		panic(err.Error())
+//	}
+//
+//	globalBucket, err = cluster.OpenBucket("default", "")
+//
+//	if err != nil {
+//		panic(err.Error())
+//	}
+//
+//
+//
+//	os.Exit(m.Run())
+//}
 
 // Repro attempt for https://issues.couchbase.com/browse/GOCBC-236
 func TestReproduceGOCBC236(t *testing.T) {
@@ -94,14 +95,31 @@ func TestReproduceGOCBC236(t *testing.T) {
 		runtime.Stack(buf, true)
 
 		// Make sure gocb is not in any of the stacks
-		r := regexp.MustCompile("gocb")
-		if !r.Match(buf) {
+		r := regexp.MustCompile(".*gocb.*")
 
-			log.Printf("Noo gocb in goroutine stacks.  Setting passed = true")
+		foundGocbInStack := false
+		matchIndexes := r.FindAllIndex(buf, -1)
+		for _, matchIndex := range matchIndexes {
 
+			matchedBuffer := buf[matchIndex[0]:matchIndex[1]]
+
+			matchedBufferStr := string(matchedBuffer)
+			if strings.Contains(matchedBufferStr, "TestReproduceGOCBC236") ||
+				strings.Contains(matchedBufferStr, "bucket_test") ||
+				strings.Contains(matchedBufferStr, "_testmain.go") {
+				// ignore "self"
+				continue
+			}
+
+			foundGocbInStack = true
+
+		}
+
+		if !foundGocbInStack {
 			passed = true
 			break
 		}
+
 
 		log.Printf("Found gocb in goroutine stacks, going to pause and retry")
 
@@ -116,6 +134,9 @@ func TestReproduceGOCBC236(t *testing.T) {
 		log.Printf("%s", buf)
 
 		t.Fatalf("Found gocb in the goroutine stack dump.  Expected: there shouldn't be any gocb related goroutines running.")
+	} else {
+		log.Printf("Passed")
+
 	}
 
 }
